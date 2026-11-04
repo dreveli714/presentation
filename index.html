@@ -614,6 +614,11 @@ body.mv .sc.on .vbar{opacity:1;pointer-events:auto}
 .nu-img{height:420px}
 #adzwall .sh-t{height:600px;background:linear-gradient(180deg,rgba(10,20,18,.95) 0%,rgba(10,20,18,.85) 32%,rgba(10,20,18,.45) 62%,rgba(10,20,18,0) 100%)}
 .vbar{left:380px;right:620px;bottom:26px}
+.vplay{position:absolute;left:50%;top:50%;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;background:rgba(10,14,34,.7);border:2px solid rgba(255,255,255,.7);z-index:46;backdrop-filter:blur(8px);cursor:pointer;box-shadow:0 20px 50px rgba(0,0,0,.4)}
+.vplay i{position:absolute;left:58px;top:45px;border-style:solid;border-width:30px 0 30px 48px;border-color:transparent transparent transparent #fff}
+.vplay[hidden]{display:none}
+#hpc .vplay,#rx .vplay{left:auto;right:298px}
+#stone .vplay{left:auto;right:505px}
 </style></head><body>
 <div id="vp"><div id="stage">
 <!-- ═══ 0 · OUVERTURE ═══ -->
@@ -1299,13 +1304,23 @@ function setLang(l){
 /* ── video ── */
 var blobs={};
 function vsrc(v){
-  var s=v.dataset.src; if(!s||v.dataset.ld) return; v.dataset.ld=1;
-  if(s.indexOf('data:')===0){
-    if(blobs[s]){ v.src=blobs[s]; return }
-    fetch(s).then(function(r){return r.blob()}).then(function(b){ blobs[s]=URL.createObjectURL(b); v.src=blobs[s]; if(v.closest('.sc.on')) v.play().catch(function(){}) });
-  } else v.src=s;
+  if(v.dataset.ld) return; var s=v.dataset.src; if(!s) return; v.dataset.ld=1;
+  v.muted=true; v.defaultMuted=true; v.playsInline=true; v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline','');
+  v.src=s; try{ v.load() }catch(_){}
+  if(s.indexOf('data:')===0) v.addEventListener('error',function onErr(){ v.removeEventListener('error',onErr);
+    if(blobs[s]){ v.src=blobs[s]; tryPlay(v); return }
+    fetch(s).then(function(r){return r.blob()}).then(function(b){ blobs[s]=URL.createObjectURL(b); v.src=blobs[s]; if(v.closest('.sc.on')) tryPlay(v) }).catch(function(){ showPlay(v,true) }) });
 }
-function playIn(sc){ $$('video',sc).forEach(function(v){ vsrc(v); try{v.currentTime=0}catch(_){} var p=v.play(); if(p) p.catch(function(){}) }) }
+function showPlay(v,on){ var sc=v.closest('.sc'), b=sc&&$('.vplay',sc); if(b) b.hidden=!on }
+function tryPlay(v){
+  if(v._userPaused) return; v.muted=true;
+  var p; try{ p=v.play() }catch(_){ showPlay(v,true); return }
+  if(p&&p.then) p.then(function(){ showPlay(v,false) },function(){ setTimeout(function(){ if(v.paused&&v.closest('.sc.on')) showPlay(v,true) },400) });
+}
+function playIn(sc){
+  $$('video',sc).forEach(function(v){ vsrc(v); v._userPaused=false; if(v.readyState>0){ try{v.currentTime=0}catch(_){} } tryPlay(v) });
+  setTimeout(function(){ if(!sc.classList.contains('on')) return; $$('video',sc).forEach(function(v){ if(v.paused&&!v._userPaused) tryPlay(v) }) },1200);
+}
 function stopIn(sc){ $$('video',sc).forEach(function(v){ v.pause() }) }
 
 /* ── count-up numbers ── */
@@ -1445,6 +1460,10 @@ SC.forEach(function(sc){
   var bar=document.createElement('div'); bar.className='vbar';
   bar.innerHTML='<button type="button" data-v="back" title="-5 s">«</button><button type="button" data-v="play" title="K">❚❚</button><button type="button" data-v="fwd" title="+5 s">»</button><div class="tr"><i></i><b></b></div><span>0:00</span>';
   sc.appendChild(bar);
+  var vp=document.createElement('button'); vp.type='button'; vp.className='vplay'; vp.hidden=true; vp.innerHTML='<i></i>'; sc.appendChild(vp);
+  vp.addEventListener('click',function(e){ e.stopPropagation(); v._userPaused=false; vsrc(v); v.muted=true; var p=v.play(); if(p&&p.then) p.then(function(){ vp.hidden=true }) });
+  v.addEventListener('playing',function(){ vp.hidden=true });
+  v.addEventListener('canplay',function(){ if(v.closest('.sc.on')&&v.paused&&!v._userPaused) tryPlay(v) });
   var tr=$('.tr',bar), lab=$('span',bar), pb=$('[data-v=play]',bar), drag=false;
   v.addEventListener('timeupdate',function(){ var p=v.duration?v.currentTime/v.duration*100:0; bar.style.setProperty('--p',p+'%'); lab.textContent=fmt(v.currentTime)+' / '+fmt(v.duration) });
   v.addEventListener('play',function(){ pb.textContent='❚❚' }); v.addEventListener('pause',function(){ pb.textContent='▶' });
@@ -1453,9 +1472,9 @@ SC.forEach(function(sc){
   tr.addEventListener('pointermove',function(e){ if(drag) seek(e.clientX) });
   tr.addEventListener('pointerup',function(){ drag=false });
   bar.addEventListener('click',function(e){ e.stopPropagation(); var b=e.target.closest('button'); if(!b) return;
-    if(b.dataset.v==='play'){ v.paused?v.play():v.pause() } else v.currentTime=Math.max(0,Math.min((v.duration||0)-0.1,v.currentTime+(b.dataset.v==='fwd'?5:-5))) });
+    if(b.dataset.v==='play'){ if(v.paused){ v._userPaused=false; v.play() } else { v._userPaused=true; v.pause() } } else v.currentTime=Math.max(0,Math.min((v.duration||0)-0.1,v.currentTime+(b.dataset.v==='fwd'?5:-5))) });
 });
-function vidKey(dir){ var v=$('video',SC[cur]); if(!v) return false; if(dir===0){ v.paused?v.play():v.pause() } else v.currentTime=Math.max(0,Math.min((v.duration||0)-0.1,v.currentTime+dir*5)); document.body.classList.add('mv'); return true }
+function vidKey(dir){ var v=$('video',SC[cur]); if(!v) return false; if(dir===0){ if(v.paused){ v._userPaused=false; v.play() } else { v._userPaused=true; v.pause() } } else v.currentTime=Math.max(0,Math.min((v.duration||0)-0.1,v.currentTime+dir*5)); document.body.classList.add('mv'); return true }
 
 /* ── solar chart ── */
 var PTS=[
@@ -1580,6 +1599,8 @@ function onKey(e){
   else if(k==='h'||k==='H'||k==='?'){ hint(true) }
 }
 document.addEventListener('keydown',onKey);
+function gestureKick(){ var sc=SC[cur]; if(!sc) return; $$('video',sc).forEach(function(v){ if(v.paused&&!v._userPaused){ vsrc(v); tryPlay(v) } }) }
+document.addEventListener('pointerdown',gestureKick,true); document.addEventListener('keydown',gestureKick,true);
 stage.addEventListener('click',function(e){ if(e.button!==0) return; if(e.target.closest('button,a,input,select,label,.qc,.pt,.ba-wrap,.mats,.dots,#steps li,.sw,.cl,.fm,.vbar,.nu-grid,.nu-tabs,.nu-pv,.jr')) return; next() });
 stage.addEventListener('contextmenu',function(e){ e.preventDefault(); prev() });
 var wl=0;
